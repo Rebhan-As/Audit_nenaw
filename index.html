@@ -667,15 +667,22 @@
         }
         
         onAuthStateChanged(auth, (user) => {
-            const loadingState = document.getElementById('loading-state');
             if (user) {
-                initializeAppLogic(user);
+                console.log("User is signed in (anonymously or custom):", user.uid);
+                initializeAppLogic();
             } else {
-                signInAnonymously(auth).catch((error) => {
-                    console.error("Anonymous sign-in error", error);
-                    loadingState.textContent = "Otentikasi Gagal.";
-                    handleFirestoreError(error, "otentikasi anonim");
-                });
+                console.log("No user signed in, attempting to sign in...");
+                if (initialAuthToken) {
+                    signInWithCustomToken(auth, initialAuthToken).catch((error) => {
+                        console.error("Custom token sign-in failed, falling back to anonymous:", error);
+                        signInAnonymously(auth).catch(err => console.error("Anonymous sign-in fallback failed:", err));
+                    });
+                } else {
+                    signInAnonymously(auth).catch((error) => {
+                        console.error("Anonymous sign-in error", error);
+                        loadingState.textContent = "Tidak dapat memulai sesi. Coba muat ulang.";
+                    });
+                }
             }
         });
     </script>
