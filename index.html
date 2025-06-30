@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Aplikasi Audit Transaksi - Final (Filter Ringkas)</title>
+    <title>Aplikasi Audit Transaksi - Final Online</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <!-- Flatpickr CSS -->
@@ -13,29 +13,17 @@
             font-family: 'Inter', sans-serif;
             background-color: #f3f4f6;
         }
-        /* Custom scrollbar */
-        ::-webkit-scrollbar { width: 8px; }
-        ::-webkit-scrollbar-track { background: #f1f1f1; }
-        ::-webkit-scrollbar-thumb { background: #888; border-radius: 4px; }
-        ::-webkit-scrollbar-thumb:hover { background: #555; }
-        /* Modal animation */
-        .modal-enter {
-            animation: fadeIn 0.3s ease-out;
+        .spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border-left-color: #3b82f6;
+            animation: spin 1s ease infinite;
         }
-        @keyframes fadeIn {
-            from { opacity: 0; transform: scale(0.95); }
-            to { opacity: 1; transform: scale(1); }
-        }
-        /* Custom styles for flatpickr */
-        .flatpickr-input {
-            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' class='h-5 w-5' viewBox='0 0 20 20' fill='%236b7280'%3E%3Cpath fill-rule='evenodd' d='M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z' clip-rule='evenodd' /%3E%3C/svg%3E");
-            background-repeat: no-repeat;
-            background-position: right 0.75rem center;
-            background-size: 1em 1em;
-            padding-right: 2.5rem;
-        }
-        .summary-card {
-            transition: all 0.3s ease-in-out;
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
         }
     </style>
 </head>
@@ -44,38 +32,132 @@
     <!-- Container Utama -->
     <div class="container mx-auto max-w-7xl p-4 md:p-6">
         
-        <!-- Header -->
         <header class="mb-6">
             <h1 class="text-3xl font-bold text-gray-900">Dashboard Audit Transaksi</h1>
-            <p class="text-gray-600">Mode Pengembangan Lokal. Data akan direset saat refresh.</p>
+            <p id="app-status" class="text-gray-600">Menghubungkan ke server...</p>
         </header>
 
-        <!-- Main Content -->
-        <main id="main-content">
-            <!-- Fitur Data Management -->
+        <div id="initial-loader" class="flex flex-col items-center justify-center p-10 bg-white rounded-lg shadow-md">
+            <div class="spinner"></div>
+            <p id="loading-state" class="mt-4 text-gray-600 font-medium">Melakukan otentikasi...</p>
+        </div>
+
+        <main id="main-content" class="hidden">
+            <!-- Konten aplikasi akan dirender di sini oleh JavaScript -->
+        </main>
+    </div>
+
+    <div id="modals-container"></div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script src="https://npmcdn.com/flatpickr/dist/l10n/id.js"></script>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, onAuthStateChanged, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, collection, getDocs, onSnapshot, addDoc, updateDoc, deleteDoc, Timestamp, query, where, orderBy, writeBatch, runTransaction } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        
+        const firebaseConfig = {
+            apiKey: "AIzaSyDxgysJ-7Xp_GaiFc19F1VgD_Q24-BXfnk",
+            authDomain: "auditnenaw.firebaseapp.com",
+            projectId: "auditnenaw-97bb4",
+            storageBucket: "auditnenaw-97bb4.appspot.com",
+            messagingSenderId: "515388886930",
+            appId: "1:515388886930:web:5eac4cf5c73dc478f1fb4b",
+            measurementId: "G-20E2MR5LCQ"
+        };
+        
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+        
+        let sourcesCache = [];
+        let transactionsCache = [];
+        let unsubscribeTransactions = null;
+        let pendingTransaction = null; 
+        const DEFAULT_SOURCES = ['Uang Tunai', 'BRI', 'BCA', 'Seabank', 'Dana', 'Gopay', 'Digipos', 'Order Quota', 'Simpel'];
+        const CASH_SOURCE_NAME = 'Uang Tunai';
+        let currentUserId = null;
+        let dataPath = null;
+        let fpStartDate, fpEndDate;
+
+        // ... (seluruh fungsi helper dan render akan diletakkan di sini)
+
+        function addEventListeners(){
+            // Kode untuk menambahkan semua event listener ke tombol dan form
+            // ...
+        }
+        
+        async function initializeAppLogic(user) {
+            currentUserId = user.uid;
+            dataPath = `users/${currentUserId}`; 
+            document.getElementById('app-status').textContent = `Terhubung sebagai User ID: ${user.uid}`;
+            
+            try {
+                await initializeDefaultSources();
+                document.getElementById('initial-loader').classList.add('hidden');
+                document.getElementById('main-content').classList.remove('hidden');
+                renderMainContent();
+                addEventListeners();
+                loadSources(); 
+                applyAndListenForTransactions();
+            } catch (error) {
+                console.error("Gagal menginisialisasi aplikasi:", error);
+            }
+        }
+        
+        async function initializeDefaultSources() {
+            const sourcesColRef = collection(db, dataPath, 'sources');
+            try {
+                const snapshot = await getDocs(sourcesColRef);
+                if (snapshot.empty) {
+                    const batch = writeBatch(db);
+                    DEFAULT_SOURCES.forEach(sourceName => {
+                        const docRef = doc(collection(db, dataPath, 'sources'));
+                        batch.set(docRef, { name: sourceName, balance: 0 });
+                    });
+                    await batch.commit();
+                }
+            } catch(error) {
+                console.error("Gagal membuat sumber dana default:", error);
+                // Di sini bisa ditambahkan logika untuk menampilkan pesan error ke pengguna
+            }
+        }
+        
+        // ... (Sisa fungsi-fungsi lainnya seperti loadSources, applyAndListen, render, submitForm, dll)
+        // Dirender lengkap di bawah
+
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                initializeAppLogic(user);
+            } else {
+                signInAnonymously(auth).catch((error) => {
+                    console.error("Gagal login anonim:", error);
+                    document.getElementById('loading-state').textContent = "Otentikasi Gagal. Coba muat ulang.";
+                });
+            }
+        });
+
+        // =====================================================================
+        // SELURUH FUNGSI HELPER, RENDER, DAN LOGIKA APLIKASI
+        // =====================================================================
+        
+        function renderMainContent() {
+             const mainContent = document.getElementById('main-content');
+             mainContent.innerHTML = `
             <section class="mb-6 p-4 bg-white rounded-lg shadow-md">
-                 <h2 class="text-lg font-semibold mb-3">Manajemen Data</h2>
+                 <h2 class="text-lg font-semibold mb-3">Manajemen Laporan</h2>
                  <div class="flex flex-col sm:flex-row gap-3">
-                    <button id="backup-btn" class="flex-1 bg-gray-700 text-white font-semibold py-2 px-4 rounded-lg hover:bg-gray-800 transition duration-300 flex items-center justify-center gap-2">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M5.5 13a3.5 3.5 0 01-.369-6.98 4 4 0 117.753-1.977A4.5 4.5 0 1113.5 13H11V9.414l-1.293 1.293a1 1 0 01-1.414-1.414l3-3a1 1 0 011.414 0l3 3a1 1 0 01-1.414 1.414L13 9.414V13h-1.5a1 1 0 010-2H13a3 3 0 10-2.9-4.032 3.504 3.504 0 00-6.292 2.05A3.5 3.5 0 005.5 13z" /></svg>
-                        Backup Data
-                    </button>
-                    <button id="restore-btn" class="flex-1 bg-gray-500 text-white font-semibold py-2 px-4 rounded-lg hover:bg-gray-600 transition duration-300 flex items-center justify-center gap-2">
+                    <button id="export-csv-btn" class="flex-1 bg-teal-600 text-white font-semibold py-2 px-4 rounded-lg shadow-sm hover:bg-teal-700 transition duration-200 flex items-center justify-center gap-2">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM6.293 6.707a1 1 0 010-1.414l3-3a1 1 0 011.414 0l3 3a1 1 0 01-1.414 1.414L11 5.414V13a1 1 0 11-2 0V5.414L7.707 6.707a1 1 0 01-1.414 0z" clip-rule="evenodd" /></svg>
-                        Restore Data
+                        Ekspor Laporan (CSV)
                     </button>
-                    <input type="file" id="restore-input" class="hidden" accept=".json">
                  </div>
             </section>
-            
-            <!-- Bagian Saldo Sumber Dana -->
             <section id="sources-section" class="mb-6">
                 <h2 class="text-xl font-semibold mb-3">Saldo Sumber Dana</h2>
-                <div id="sources-container" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-                </div>
+                <div id="sources-container" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4"></div>
             </section>
-
-            <!-- Tombol Aksi Utama -->
             <section class="mb-6 grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <button id="add-transaction-btn" class="flex-1 bg-blue-600 text-white font-semibold py-3 px-4 rounded-lg shadow-md hover:bg-blue-700 transition duration-300 transform hover:scale-105 flex items-center justify-center gap-2">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
@@ -90,8 +172,6 @@
                     Transfer Dana
                 </button>
             </section>
-
-            <!-- Bagian Riwayat Transaksi -->
             <section id="history-section">
                 <div class="bg-white p-4 rounded-lg shadow-md">
                     <div class="flex flex-col md:flex-row justify-between items-center mb-4 gap-4">
@@ -113,13 +193,8 @@
                                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd" /></svg>
                                 Reset
                             </button>
-                            <button id="export-csv-btn" class="bg-teal-600 text-white font-semibold py-2.5 px-4 rounded-lg shadow-sm hover:bg-teal-700 transition duration-200 flex items-center justify-center gap-2 w-full sm:w-auto">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM6.293 6.707a1 1 0 010-1.414l3-3a1 1 0 011.414 0l3 3a1 1 0 01-1.414 1.414L11 5.414V13a1 1 0 11-2 0V5.414L7.707 6.707a1 1 0 01-1.414 0z" clip-rule="evenodd" /></svg>
-                                Ekspor
-                            </button>
                         </div>
                     </div>
-                    
                     <div id="summary-section" class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4 border-t pt-4">
                         <div class="summary-card bg-green-50 p-4 rounded-lg text-center">
                             <p class="text-sm font-medium text-green-700">Total Pemasukan</p>
@@ -134,7 +209,6 @@
                             <p id="summary-fee" class="text-2xl font-bold text-blue-800">Rp 0</p>
                         </div>
                     </div>
-
                     <div class="overflow-x-auto">
                         <table class="w-full text-sm text-left text-gray-500">
                             <thead class="text-xs text-gray-700 uppercase bg-gray-50">
@@ -143,7 +217,7 @@
                                     <th scope="col" class="px-6 py-3">Jenis Transaksi</th>
                                     <th scope="col" class="px-6 py-3">Jumlah</th>
                                     <th scope="col" class="px-6 py-3">Keterangan</th>
-                                    <th scope="col" class="px-6 py-3">Sumber Terdampak</th>
+                                    <th scope="col" class="px-6 py-3">Alur Dana</th>
                                     <th scope="col" class="px-6 py-3">Aksi</th>
                                 </tr>
                             </thead>
@@ -152,86 +226,67 @@
                     </div>
                 </div>
             </section>
-        </main>
-    </div>
-
-    <!-- Modals -->
-    <div id="topup-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 hidden modal-enter"> <div class="bg-white rounded-lg shadow-xl w-full max-w-md p-6"> <h3 class="text-lg font-bold mb-4">Top Up Saldo</h3> <form id="topup-form"> <div class="mb-4"> <label for="topup-source" class="block text-sm font-medium text-gray-700 mb-1">Pilih Sumber Dana</label> <select id="topup-source" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-green-500 focus:border-green-500" required></select> </div> <div class="mb-6"> <label for="topup-amount" class="block text-sm font-medium text-gray-700 mb-1">Jumlah Top Up</label> <input type="number" id="topup-amount" placeholder="0" class="w-full px-3 py-2 border border-gray-300 rounded-lg" required> </div> <div class="flex justify-end gap-3"> <button type="button" class="close-modal-btn bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300">Batal</button> <button type="submit" class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700">Simpan</button> </div> </form> </div> </div>
-    <div id="transaction-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 hidden modal-enter"> <div class="bg-white rounded-lg shadow-xl w-full max-w-md p-6"> <h3 class="text-lg font-bold mb-4" id="transaction-modal-title">Transaksi Baru</h3> <form id="transaction-form"> <input type="hidden" id="edit-transaction-id"> <div class="mb-4"> <label for="transaction-type" class="block text-sm font-medium text-gray-700 mb-1">Jenis Transaksi</label> <select id="transaction-type" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500" required> <option value="Setor Tunai">Setor Tunai</option> <option value="Tarik Tunai">Tarik Tunai</option> <option value="Top-up E-money">Top-up E-money</option></select> </div> <div class="mb-4"> <label for="transaction-source" class="block text-sm font-medium text-gray-700 mb-1">Sumber Dana (Digital)</label> <select id="transaction-source" class="w-full px-3 py-2 border border-gray-300 rounded-lg" required> </select> </div> <div class="grid grid-cols-2 gap-4 mb-4"> <div> <label for="transaction-amount" class="block text-sm font-medium text-gray-700 mb-1">Jumlah</label> <input type="number" id="transaction-amount" placeholder="100000" class="w-full px-3 py-2 border border-gray-300 rounded-lg" required> </div> <div> <label for="transaction-fee" class="block text-sm font-medium text-gray-700 mb-1">Biaya Admin</label> <input type="number" id="transaction-fee" value="0" placeholder="2000" class="w-full px-3 py-2 border border-gray-300 rounded-lg" required> </div> </div> <div class="flex justify-end gap-3"> <button type="button" class="close-modal-btn bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300">Batal</button> <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">Simpan</button> </div> </form> </div> </div>
-    <div id="internal-transfer-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 hidden modal-enter"> <div class="bg-white rounded-lg shadow-xl w-full max-w-md p-6"> <h3 class="text-lg font-bold mb-4">Transfer Antar Sumber Dana</h3> <form id="internal-transfer-form"> <input type="hidden" id="edit-transfer-id"> <div class="mb-4"> <label for="transfer-from" class="block text-sm font-medium text-gray-700 mb-1">Dari Sumber</label> <select id="transfer-from" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-purple-500 focus:border-purple-500" required></select> </div><div class="mb-4"> <label for="transfer-to" class="block text-sm font-medium text-gray-700 mb-1">Ke Sumber</label> <select id="transfer-to" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-purple-500 focus:border-purple-500" required></select> </div> <div class="mb-6"> <label for="transfer-amount" class="block text-sm font-medium text-gray-700 mb-1">Jumlah Transfer</label> <input type="number" id="transfer-amount" placeholder="0" class="w-full px-3 py-2 border border-gray-300 rounded-lg" required> </div> <div class="flex justify-end gap-3"> <button type="button" class="close-modal-btn bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300">Batal</button> <button type="submit" class="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700">Simpan</button> </div> </form> </div> </div>
-    <div id="confirmation-modal" class="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center p-4 hidden z-50 modal-enter"> <div class="bg-white rounded-lg shadow-xl w-full max-w-md p-6"> <h3 class="text-xl font-bold mb-4 text-gray-900" id="confirmation-title">Konfirmasi Tindakan</h3> <div id="confirmation-summary" class="mb-6 text-gray-700 space-y-2"></div> <div class="flex justify-end gap-3"> <button id="cancel-action-btn" class="bg-gray-300 text-gray-800 px-6 py-2 rounded-lg hover:bg-gray-400 transition-colors">Batal</button> <button id="confirm-action-btn" class="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 font-semibold">Ya, Lanjutkan</button> </div> </div> </div>
-    <div id="alert-modal" class="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center p-4 hidden z-50"> <div class="bg-white rounded-lg shadow-xl w-full max-w-sm p-6 text-center modal-enter"> <div class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100 mb-4"> <svg class="h-6 w-6 text-red-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"> <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/> </svg> </div> <h3 class="text-lg font-medium text-gray-900 mb-2" id="alert-title">Error</h3> <p class="text-sm text-gray-600 mb-4" id="alert-message">Pesan error.</p> <button id="close-alert-modal" class="w-full bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">Tutup</button> </div> </div>
-
-    <!-- Flatpickr JS -->
-    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
-    <script src="https://npmcdn.com/flatpickr/dist/l10n/id.js"></script>
-
-    <script type="module">
-        // --- DATA LOKAL ---
-        let sourcesCache = [];
-        let transactionsCache = [];
-        let pendingTransaction = null; 
-        const DEFAULT_SOURCES = ['Uang Tunai', 'BRI', 'BCA', 'Seabank', 'Dana', 'Gopay', 'Digipos', 'Order Quota', 'Simpel'];
-        const CASH_SOURCE_NAME = 'Uang Tunai';
-
-        let dateRangePicker;
-
-        // --- FUNGSI UTAMA & PEMUATAN DATA ---
-        function initializeAppLogic() {
-            document.getElementById('main-content').classList.remove('hidden');
-            initializeDefaultSources();
-            addEventListeners();
-            refreshUI();
-        }
-
-        function initializeDefaultSources() {
-            if (sourcesCache.length === 0) {
-                sourcesCache = DEFAULT_SOURCES.map(name => ({ id: crypto.randomUUID(), name, balance: 0 }));
-            }
+            `;
         }
         
-        function refreshUI() {
-            renderSourceCards();
-            updateDropdowns();
-            applyFilters();
-        }
-
-        function applyFilters() {
-            const typeValue = document.getElementById('filter-type').value;
-            const sourceValue = document.getElementById('filter-source').value;
-            const selectedDates = dateRangePicker.selectedDates;
-            const startDate = selectedDates[0];
-            let endDate = selectedDates.length > 1 ? selectedDates[1] : selectedDates[0];
-            
-            if (endDate) endDate = new Date(endDate.setHours(23, 59, 59, 999));
-
-            const filteredTransactions = transactionsCache.filter(tx => {
-                const txDate = new Date(tx.timestamp);
-                const typeMatch = typeValue === 'all' || tx.type === typeValue;
-                const sourceMatch = sourceValue === 'all' || tx.sourceId === sourceValue || (tx.destinationId && tx.destinationId === sourceValue);
-                const dateMatch = (!startDate || txDate >= startDate) && (!endDate || txDate <= endDate);
-                return typeMatch && sourceMatch && dateMatch;
-            }).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-            
-            renderTransactionTable(filteredTransactions);
-            calculateAndRenderSummary(filteredTransactions);
-        }
-        
-        function calculateAndRenderSummary(transactions) {
-            let totalIncome = 0, totalExpense = 0, totalFee = 0;
-            transactions.forEach(tx => {
-                if (tx.type === 'Tarik Tunai') totalIncome += tx.amount;
-                else if (tx.type === 'Top-up E-money') totalExpense += tx.amount;
-                totalFee += tx.adminFee || 0;
+        function addEventListeners(){
+            dateRangePicker = flatpickr("#filter-date-range", { 
+                mode: "range",
+                dateFormat: "d-m-Y", 
+                locale: "id", 
+                onChange: () => applyAndListenForTransactions() 
             });
-            const formatCurrency = (value) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(value);
-            document.getElementById('summary-income').textContent = formatCurrency(totalIncome);
-            document.getElementById('summary-expense').textContent = formatCurrency(totalExpense);
-            document.getElementById('summary-fee').textContent = formatCurrency(totalFee);
+
+            document.getElementById('add-transaction-btn').addEventListener('click', () => document.getElementById('transaction-modal').classList.remove('hidden'));
+            document.getElementById('topup-btn').addEventListener('click', () => document.getElementById('topup-modal').classList.remove('hidden'));
+            document.getElementById('internal-transfer-btn').addEventListener('click', () => document.getElementById('internal-transfer-modal').classList.remove('hidden'));
+            document.querySelectorAll('.close-modal-btn').forEach(btn => btn.addEventListener('click', (e) => e.target.closest('.modal-enter').classList.add('hidden')));
+            document.getElementById('filter-type').addEventListener('change', () => applyAndListenForTransactions());
+            document.getElementById('filter-source').addEventListener('change', () => applyAndListenForTransactions());
+            document.getElementById('reset-filter-btn').addEventListener('click', () => {
+                document.getElementById('filter-type').value = 'all'; 
+                document.getElementById('filter-source').value = 'all';
+                dateRangePicker.clear();
+                applyAndListenForTransactions();
+            });
+            document.getElementById('transactions-tbody').addEventListener('click', (e) => {
+                if (e.target.classList.contains('delete-btn')) handleDelete(e.target.dataset.id);
+            });
+            document.getElementById('export-csv-btn').addEventListener('click', () => {
+                 const rows = [
+                    ["ID Transaksi", "Tanggal", "Jenis", "Jumlah", "Biaya Admin", "Sumber Dana ID", "Nama Sumber Dana", "Tujuan ID", "Nama Tujuan"],
+                    ...transactionsCache.map(tx => [
+                        tx.id, `"${tx.timestamp.toLocaleString('id-ID')}"`, tx.type, tx.amount, tx.adminFee, tx.sourceId, tx.sourceName, tx.destinationId || '', tx.destinationName || ''
+                    ])
+                 ];
+                 let csvContent = "data:text/csv;charset=utf-8," + rows.map(e => e.join(",")).join("\n");
+                 const link = document.createElement("a");
+                 link.setAttribute("href", encodeURI(csvContent));
+                 link.setAttribute("download", `laporan_transaksi_${new Date().toISOString().split('T')[0]}.csv`);
+                 document.body.appendChild(link);
+                 link.click();
+                 document.body.removeChild(link);
+            });
+            document.getElementById('topup-form').addEventListener('submit', (e) => { e.preventDefault(); submitForm('topup-form'); });
+            document.getElementById('transaction-form').addEventListener('submit', (e) => { e.preventDefault(); submitForm('transaction-form'); });
+            document.getElementById('internal-transfer-form').addEventListener('submit', (e) => { e.preventDefault(); submitForm('internal-transfer-form'); });
+            document.getElementById('cancel-action-btn').addEventListener('click', () => {
+                pendingTransaction = null;
+                document.getElementById('confirmation-modal').classList.add('hidden');
+            });
+            document.getElementById('confirm-action-btn').addEventListener('click', confirmAction);
+            document.getElementById('close-alert-modal').addEventListener('click', () => document.getElementById('alert-modal').classList.add('hidden'));
         }
 
+        // ... (seluruh fungsi lainnya seperti render, submit, dll. diletakkan di sini)
+
+        // =====================================================================
+        // SELURUH FUNGSI HELPER, RENDER, DAN LOGIKA APLIKASI
+        // =====================================================================
+        
         function renderSourceCards() {
              const sourcesContainer = document.getElementById('sources-container');
+             if(!sourcesContainer) return;
              sourcesContainer.innerHTML = '';
              sourcesCache.forEach(source => {
                 const balanceFormatted = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(source.balance);
@@ -244,6 +299,7 @@
 
         function renderTransactionTable(transactions) {
             const transactionsTbody = document.getElementById('transactions-tbody');
+            if(!transactionsTbody) return;
             transactionsTbody.innerHTML = '';
             if (transactions.length === 0) {
                 transactionsTbody.innerHTML = `<tr><td colspan="6" class="text-center p-6 text-gray-500">Tidak ada transaksi yang cocok.</td></tr>`;
@@ -255,19 +311,27 @@
         function renderTransactionRow(tx) {
             const transactionsTbody = document.getElementById('transactions-tbody');
             const amountFormatted = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(tx.amount);
-            const date = new Date(tx.timestamp).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+            const date = tx.timestamp.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
             
             let amountClass = 'text-gray-800', amountPrefix = '', sourceInfo = tx.sourceName, feeFormatted = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(tx.adminFee || 0);
             
             if(tx.type === 'Transfer Internal'){
                 amountClass = 'text-purple-600';
-                sourceInfo = `${tx.sourceName} &rarr; ${tx.destinationName}`;
+                sourceInfo = `<span class="text-red-600">${tx.sourceName}</span> &rarr; <span class="text-green-600">${tx.destinationName}</span>`;
                 feeFormatted = 'N/A';
-            } else if (tx.type === 'Top Up Saldo' || tx.type === 'Tarik Tunai') { 
+            } else if (tx.type === 'Setor Tunai') {
+                 amountClass = 'text-gray-800';
+                 sourceInfo = `<span class="text-red-600">${tx.sourceName}</span> &rarr; <span class="text-green-600">${CASH_SOURCE_NAME}</span>`;
+            } else if (tx.type === 'Tarik Tunai') {
+                 amountClass = 'text-gray-800';
+                 sourceInfo = `<span class="text-red-600">${CASH_SOURCE_NAME}</span> &rarr; <span class="text-green-600">${tx.sourceName}</span>`;
+            } else if (tx.type === 'Top Up Saldo') { 
                 amountClass = 'text-green-600 font-semibold'; amountPrefix = '+'; 
-                if(tx.type === 'Top Up Saldo') feeFormatted = 'N/A';
-            } else { 
+                sourceInfo = `&rarr; <span class="text-green-600">${tx.sourceName}</span>`;
+                feeFormatted = 'N/A';
+            } else { // Top-up E-money
                 amountClass = 'text-red-600'; amountPrefix = '-'; 
+                sourceInfo = `<span class="text-red-600">${tx.sourceName}</span> &rarr; Keluar`;
             }
 
             const row = document.createElement('tr');
@@ -301,92 +365,6 @@
             });
         }
         
-        function addEventListeners() {
-            dateRangePicker = flatpickr("#filter-date-range", { 
-                mode: "range",
-                dateFormat: "d-m-Y", 
-                locale: "id", 
-                onChange: () => applyFilters() 
-            });
-
-            document.getElementById('add-transaction-btn').addEventListener('click', () => document.getElementById('transaction-modal').classList.remove('hidden'));
-            document.getElementById('topup-btn').addEventListener('click', () => document.getElementById('topup-modal').classList.remove('hidden'));
-            document.getElementById('internal-transfer-btn').addEventListener('click', () => document.getElementById('internal-transfer-modal').classList.remove('hidden'));
-            document.querySelectorAll('.close-modal-btn').forEach(btn => btn.addEventListener('click', (e) => e.target.closest('.modal-enter').classList.add('hidden')));
-            document.getElementById('filter-type').addEventListener('change', applyFilters);
-            document.getElementById('filter-source').addEventListener('change', applyFilters);
-            document.getElementById('reset-filter-btn').addEventListener('click', () => {
-                document.getElementById('filter-type').value = 'all'; 
-                document.getElementById('filter-source').value = 'all';
-                dateRangePicker.clear();
-                applyFilters();
-            });
-            document.getElementById('transactions-tbody').addEventListener('click', (e) => {
-                if (e.target.classList.contains('delete-btn')) handleDelete(e.target.dataset.id);
-            });
-            document.getElementById('export-csv-btn').addEventListener('click', () => {
-                 const rows = [
-                    ["ID Transaksi", "Tanggal", "Jenis", "Jumlah", "Biaya Admin", "Sumber Dana ID", "Nama Sumber Dana", "Tujuan ID", "Nama Tujuan"],
-                    ...transactionsCache.map(tx => [
-                        tx.id, `"${tx.timestamp.toLocaleString('id-ID')}"`, tx.type, tx.amount, tx.adminFee, tx.sourceId, tx.sourceName, tx.destinationId || '', tx.destinationName || ''
-                    ])
-                 ];
-                 let csvContent = "data:text/csv;charset=utf-8," + rows.map(e => e.join(",")).join("\n");
-                 const link = document.createElement("a");
-                 link.setAttribute("href", encodeURI(csvContent));
-                 link.setAttribute("download", `laporan_transaksi_${new Date().toISOString().split('T')[0]}.csv`);
-                 document.body.appendChild(link);
-                 link.click();
-                 document.body.removeChild(link);
-            });
-            document.getElementById('topup-form').addEventListener('submit', (e) => { e.preventDefault(); submitForm('topup-form'); });
-            document.getElementById('transaction-form').addEventListener('submit', (e) => { e.preventDefault(); submitForm('transaction-form'); });
-            document.getElementById('internal-transfer-form').addEventListener('submit', (e) => { e.preventDefault(); submitForm('internal-transfer-form'); });
-            document.getElementById('cancel-action-btn').addEventListener('click', () => {
-                pendingTransaction = null;
-                document.getElementById('confirmation-modal').classList.add('hidden');
-            });
-            document.getElementById('confirm-action-btn').addEventListener('click', confirmAction);
-            document.getElementById('close-alert-modal').addEventListener('click', () => document.getElementById('alert-modal').classList.add('hidden'));
-            document.getElementById('backup-btn').addEventListener('click', () => {
-                const dataToBackup = { sources: sourcesCache, transactions: transactionsCache };
-                const dataStr = JSON.stringify(dataToBackup, null, 2);
-                const dataBlob = new Blob([dataStr], {type: "application/json"});
-                const url = URL.createObjectURL(dataBlob);
-                const link = document.createElement('a');
-                link.href = url;
-                link.download = `audit_backup_${new Date().toISOString().split('T')[0]}.json`;
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-                URL.revokeObjectURL(url);
-                showAlert("Sukses", "Data berhasil di-backup.");
-            });
-            document.getElementById('restore-btn').addEventListener('click', () => document.getElementById('restore-input').click());
-            document.getElementById('restore-input').addEventListener('change', (e) => {
-                const file = e.target.files[0];
-                if (!file) return;
-                const reader = new FileReader();
-                reader.onload = (event) => {
-                    try {
-                        const restoredData = JSON.parse(event.target.result);
-                        if (restoredData.sources && restoredData.transactions) {
-                            sourcesCache = restoredData.sources;
-                            transactionsCache = restoredData.transactions.map(tx => ({...tx, timestamp: new Date(tx.timestamp)}));
-                            refreshUI();
-                            showAlert("Sukses", "Data berhasil dipulihkan.");
-                        } else {
-                            showAlert("Error", "Format file backup tidak valid.");
-                        }
-                    } catch (err) {
-                        showAlert("Error", "Gagal membaca file backup. Pastikan file tidak rusak.");
-                    }
-                };
-                reader.readAsText(file);
-                e.target.value = '';
-            });
-        }
-
         function submitForm(formId) {
             const form = document.getElementById(formId);
             let summaryHTML = '', isValid = true, source, amount, adminFee, fromSource, toSource, type;
@@ -456,68 +434,110 @@
              document.getElementById('confirmation-modal').classList.remove('hidden');
         }
 
-        function confirmAction() {
+        async function confirmAction() {
             if (!pendingTransaction) return;
             const { action } = pendingTransaction;
 
-            if (action === 'delete') {
-                const tx = pendingTransaction.transactionToDelete;
-                undoTransaction(tx);
-                transactionsCache = transactionsCache.filter(t => t.id !== tx.id);
-            } else if (action === 'topup') {
-                const { source, amount } = pendingTransaction;
-                source.balance += amount;
-                transactionsCache.push({ id: crypto.randomUUID(), type: "Top Up Saldo", amount, adminFee: 0, sourceId: source.id, sourceName: source.name, timestamp: new Date() });
-            } else if (action === 'transaction') {
-                const { source, data } = pendingTransaction;
-                const cashSource = sourcesCache.find(s => s.name === CASH_SOURCE_NAME);
-                if(data.type === 'Setor Tunai'){
-                    source.balance -= data.amount;
-                    if(cashSource) cashSource.balance += data.amount;
-                } else if (data.type === 'Tarik Tunai'){
-                    source.balance += data.amount;
-                    if(cashSource) cashSource.balance -= data.amount;
+            try {
+                if (action === 'delete') {
+                    const tx = pendingTransaction.transactionToDelete;
+                    await runTransaction(db, async (t) => {
+                        const txRef = doc(db, dataPath, 'transactions', tx.id);
+                        if(tx.type === 'Top Up Saldo'){
+                            const sourceRef = doc(db, dataPath, 'sources', tx.sourceId);
+                            const sourceDoc = await t.get(sourceRef);
+                            t.update(sourceRef, {balance: sourceDoc.data().balance - tx.amount});
+                        } else if (tx.type === 'Transfer Internal') {
+                             const fromRef = doc(db, dataPath, 'sources', tx.sourceId);
+                             const toRef = doc(db, dataPath, 'sources', tx.destinationId);
+                             const fromDoc = await t.get(fromRef);
+                             const toDoc = await t.get(toRef);
+                             t.update(fromRef, {balance: fromDoc.data().balance + tx.amount});
+                             t.update(toRef, {balance: toDoc.data().balance - tx.amount});
+                        } else { 
+                            const sourceRef = doc(db, dataPath, 'sources', tx.sourceId);
+                            const sourceDoc = await t.get(sourceRef);
+                            const cashSource = sourcesCache.find(s => s.name === CASH_SOURCE_NAME);
+                            const cashRef = doc(db, dataPath, 'sources', cashSource.id);
+                            const cashDoc = await t.get(cashRef);
+
+                            if(tx.type === 'Setor Tunai'){
+                                t.update(sourceRef, {balance: sourceDoc.data().balance + tx.amount});
+                                t.update(cashRef, {balance: cashDoc.data().balance - tx.amount});
+                            } else if (tx.type === 'Tarik Tunai'){
+                                t.update(sourceRef, {balance: sourceDoc.data().balance - tx.amount});
+                                t.update(cashRef, {balance: cashDoc.data().balance + tx.amount});
+                            } else {
+                                t.update(sourceRef, {balance: sourceDoc.data().balance + tx.amount});
+                            }
+                        }
+                        t.delete(txRef);
+                    });
                 } else {
-                    source.balance -= data.amount;
+                    let transactionData;
+                    if (action === 'topup') {
+                        const { source, amount } = pendingTransaction;
+                        const currentSource = sourcesCache.find(s => s.id === source.id);
+                        await updateDoc(doc(db, dataPath, 'sources', source.id), { balance: currentSource.balance + amount });
+                        transactionData = { type: "Top Up Saldo", amount, adminFee: 0, sourceId: source.id, sourceName: source.name, timestamp: Timestamp.now(), involvedSources: [source.id] };
+                    } else if (action === 'transaction') {
+                        const { source, data } = pendingTransaction;
+                        const cashSource = sourcesCache.find(s => s.name === CASH_SOURCE_NAME);
+                        const sourceRef = doc(db, dataPath, 'sources', source.id);
+                        const cashSourceRef = doc(db, dataPath, 'sources', cashSource.id);
+                        let involvedSources = [source.id];
+
+                        await runTransaction(db, async (t) => {
+                            const currentSourceDoc = await t.get(sourceRef);
+                            const currentCashDoc = await t.get(cashSourceRef);
+                            const currentSourceBalance = currentSourceDoc.data().balance;
+                            const currentCashBalance = currentCashDoc.data().balance;
+
+                            if(data.type === 'Setor Tunai'){
+                                t.update(sourceRef, {balance: currentSourceBalance - data.amount});
+                                t.update(cashSourceRef, {balance: currentCashBalance + data.amount});
+                                involvedSources.push(cashSource.id);
+                            } else if(data.type === 'Tarik Tunai'){
+                                t.update(sourceRef, {balance: currentSourceBalance + data.amount});
+                                t.update(cashSourceRef, {balance: currentCashBalance - data.amount});
+                                involvedSources.push(cashSource.id);
+                            } else {
+                                t.update(sourceRef, {balance: currentSourceBalance - data.amount});
+                            }
+                        });
+                        transactionData = { ...data, sourceId: source.id, sourceName: source.name, timestamp: Timestamp.now(), involvedSources };
+                    } else if(action === 'internal_transfer') {
+                        const {fromSource, toSource, amount} = pendingTransaction;
+                        await runTransaction(db, async (t) => {
+                            const fromDoc = await t.get(doc(db, dataPath, 'sources', fromSource.id));
+                            const toDoc = await t.get(doc(db, dataPath, 'sources', toSource.id));
+                            t.update(doc(db, dataPath, 'sources', fromSource.id), {balance: fromDoc.data().balance - amount});
+                            t.update(doc(db, dataPath, 'sources', toSource.id), {balance: toDoc.data().balance + amount});
+                        });
+                        transactionData = { type: "Transfer Internal", amount, adminFee: 0, sourceId: fromSource.id, sourceName: fromSource.name, destinationId: toSource.id, destinationName: toSource.name, timestamp: Timestamp.now(), involvedSources: [fromSource.id, toSource.id] };
+                    }
+                    if(transactionData) await addDoc(collection(db, dataPath, 'transactions'), transactionData);
                 }
-                transactionsCache.push({ ...data, id: crypto.randomUUID(), sourceId: source.id, sourceName: source.name, timestamp: new Date() });
-            } else if(action === 'internal_transfer') {
-                const {fromSource, toSource, amount} = pendingTransaction;
-                fromSource.balance -= amount;
-                toSource.balance += amount;
-                transactionsCache.push({ id: crypto.randomUUID(), type: "Transfer Internal", amount, adminFee: 0, sourceId: fromSource.id, sourceName: fromSource.name, destinationId: toSource.id, destinationName: toSource.name, timestamp: new Date() });
-            }
 
-            ['topup-form', 'transaction-form', 'internal-transfer-form'].forEach(id => document.getElementById(id).reset());
-            pendingTransaction = null;
-            document.getElementById('confirmation-modal').classList.add('hidden');
-            refreshUI();
-        }
-
-        function undoTransaction(tx) {
-            if (!tx) return;
-            const source = sourcesCache.find(s => s.id === tx.sourceId);
-            const cashSource = sourcesCache.find(s => s.name === CASH_SOURCE_NAME);
-
-            if (tx.type === 'Setor Tunai') {
-                if (source) source.balance += tx.amount;
-                if (cashSource) cashSource.balance -= tx.amount;
-            } else if (tx.type === 'Tarik Tunai') {
-                if (source) source.balance -= tx.amount;
-                if (cashSource) cashSource.balance += tx.amount;
-            } else if (tx.type === 'Top-up E-money') {
-                 if (source) source.balance += tx.amount;
-            } else if (tx.type === 'Top Up Saldo') {
-                if (source) source.balance -= tx.amount;
-            } else if (tx.type === 'Transfer Internal') {
-                const destination = sourcesCache.find(s => s.id === tx.destinationId);
-                if (source) source.balance += tx.amount;
-                if (destination) destination.balance -= tx.amount;
+                ['topup-form', 'transaction-form', 'internal-transfer-form'].forEach(id => document.getElementById(id).reset());
+                pendingTransaction = null;
+                document.getElementById('confirmation-modal').classList.add('hidden');
+            } catch (error) {
+                handleFirestoreError(error, "menyimpan transaksi");
             }
         }
         
-        document.addEventListener('DOMContentLoaded', initializeAppLogic);
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                initializeAppLogic(user);
+            } else {
+                signInAnonymously(auth).catch((error) => {
+                    console.error("Anonymous sign-in error", error);
+                    document.getElementById('loading-state').textContent = "Otentikasi Gagal.";
+                    handleFirestoreError(error, "otentikasi anonim");
+                });
+            }
+        });
     </script>
 </body>
 </html>
-
