@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Aplikasi Audit Transaksi - Final Online</title>
+    <title>Aplikasi Audit Transaksi - Online Final</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <!-- Flatpickr CSS -->
@@ -13,6 +13,37 @@
             font-family: 'Inter', sans-serif;
             background-color: #f3f4f6;
         }
+        /* Custom scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #888; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #555; }
+        /* Modal animation */
+        .modal-enter {
+            animation: fadeIn 0.3s ease-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: scale(0.95); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        /* Custom styles for flatpickr */
+        .flatpickr-input {
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' class='h-5 w-5' viewBox='0 0 20 20' fill='%236b7280'%3E%3Cpath fill-rule='evenodd' d='M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z' clip-rule='evenodd' /%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 0.75rem center;
+            background-size: 1em 1em;
+            padding-right: 2.5rem;
+        }
+        .code-block {
+            background-color: #1f2937;
+            color: #d1d5db;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            font-family: monospace;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        /* Loading Spinner */
         .spinner {
             border: 4px solid rgba(0, 0, 0, 0.1);
             width: 36px;
@@ -25,11 +56,13 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
+        .summary-card {
+            transition: all 0.3s ease-in-out;
+        }
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800">
 
-    <!-- Container Utama -->
     <div class="container mx-auto max-w-7xl p-4 md:p-6">
         
         <header class="mb-6">
@@ -42,9 +75,37 @@
             <p id="loading-state" class="mt-4 text-gray-600 font-medium">Melakukan otentikasi...</p>
         </div>
 
-        <main id="main-content" class="hidden">
-            <!-- Konten aplikasi akan dirender di sini oleh JavaScript -->
-        </main>
+        <div id="permission-error-screen" class="hidden bg-red-50 border-l-4 border-red-400 p-6 rounded-r-lg shadow-md">
+            <div class="flex">
+                <div class="py-1"><svg class="h-8 w-8 text-red-500 mr-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg></div>
+                <div>
+                    <h2 class="text-xl font-bold text-red-800">Aksi Diperlukan: Aturan Keamanan Salah</h2>
+                    <p class="mt-2 text-md text-red-700">Database Anda menolak koneksi. Ini **bukan kesalahan aplikasi**, melainkan pengaturan keamanan Anda.</p>
+                    <h3 class="font-bold text-red-800 mt-4">Langkah-langkah Perbaikan:</h3>
+                    <ol class="list-decimal list-inside mt-2 text-red-700 space-y-2">
+                        <li>Buka <a href="https://console.firebase.google.com/" target="_blank" class="font-semibold underline hover:text-red-900">Firebase Console</a> dan pilih proyek: <strong id="error-project-id" class="bg-red-200 px-1 rounded"></strong>.</li>
+                        <li>Navigasi ke <strong>Build > Firestore Database > Rules</strong>.</li>
+                        <li>Hapus semua teks yang ada dan ganti dengan aturan berikut:</li>
+                    </ol>
+                    <div class="code-block mt-3">
+                        rules_version = '2';
+                        service cloud.firestore {
+                          match /databases/{database}/documents {
+                            match /users/{userId}/{document=**} {
+                              allow read, write: if request.auth.uid == userId;
+                            }
+                          }
+                        }
+                    </div>
+                    <ol class="list-decimal list-inside mt-3 text-red-700 space-y-2" start="5">
+                        <li>Klik tombol biru <strong>"Publish"</strong>.</li>
+                        <li>Tunggu 2 menit penuh, lalu refresh halaman ini.</li>
+                    </ol>
+                </div>
+            </div>
+        </div>
+
+        <main id="main-content" class="hidden"></main>
     </div>
 
     <div id="modals-container"></div>
@@ -58,13 +119,13 @@
         import { getFirestore, doc, collection, getDocs, onSnapshot, addDoc, updateDoc, deleteDoc, Timestamp, query, where, orderBy, writeBatch, runTransaction } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         
         const firebaseConfig = {
-            apiKey: "AIzaSyDxgysJ-7Xp_GaiFc19F1VgD_Q24-BXfnk",
-            authDomain: "auditnenaw.firebaseapp.com",
+            apiKey: "AIzaSyCNKoJ0bThAFIEadkhW4wwJ_mOqPqtfxLo",
+            authDomain: "auditnenaw-97bb4.firebaseapp.com",
             projectId: "auditnenaw-97bb4",
             storageBucket: "auditnenaw-97bb4.appspot.com",
             messagingSenderId: "515388886930",
             appId: "1:515388886930:web:5eac4cf5c73dc478f1fb4b",
-            measurementId: "G-20E2MR5LCQ"
+            measurementId: "G-6RWQR7QYVE"
         };
         
         const app = initializeApp(firebaseConfig);
@@ -77,74 +138,108 @@
         let pendingTransaction = null; 
         const DEFAULT_SOURCES = ['Uang Tunai', 'BRI', 'BCA', 'Seabank', 'Dana', 'Gopay', 'Digipos', 'Order Quota', 'Simpel'];
         const CASH_SOURCE_NAME = 'Uang Tunai';
-        let currentUserId = null;
         let dataPath = null;
         let fpStartDate, fpEndDate;
-
-        // ... (seluruh fungsi helper dan render akan diletakkan di sini)
-
-        function addEventListeners(){
-            // Kode untuk menambahkan semua event listener ke tombol dan form
-            // ...
-        }
         
+        // ... (seluruh fungsi helper dan render akan diletakkan di sini)
+        
+        document.addEventListener('DOMContentLoaded', () => {
+            onAuthStateChanged(auth, (user) => {
+                if (user) {
+                    initializeAppLogic(user);
+                } else {
+                    signInAnonymously(auth).catch((error) => {
+                        handleFirestoreError(error, "otentikasi anonim");
+                    });
+                }
+            });
+        });
+
+        function handleFirestoreError(error, context) {
+            console.error(`Firestore error in ${context}:`, error);
+            document.getElementById('initial-loader').classList.add('hidden');
+            if (error.code === 'permission-denied') {
+                document.getElementById('error-project-id').textContent = firebaseConfig.projectId;
+                document.getElementById('main-content').classList.add('hidden');
+                document.getElementById('permission-error-screen').classList.remove('hidden');
+            } else {
+                showAlert("Error Database", `Terjadi kesalahan saat ${context}. Cek console untuk detail.`);
+            }
+        }
+
         async function initializeAppLogic(user) {
-            currentUserId = user.uid;
-            dataPath = `users/${currentUserId}`; 
-            document.getElementById('app-status').textContent = `Terhubung sebagai User ID: ${user.uid}`;
-            
+            dataPath = `users/${user.uid}`;
             try {
                 await initializeDefaultSources();
                 document.getElementById('initial-loader').classList.add('hidden');
                 document.getElementById('main-content').classList.remove('hidden');
-                renderMainContent();
+                document.getElementById('app-status').textContent = `Terhubung | Sesi ID: ${user.uid}`;
+                renderMainContentAndModals();
                 addEventListeners();
-                loadSources(); 
+                loadSources();
                 applyAndListenForTransactions();
             } catch (error) {
-                console.error("Gagal menginisialisasi aplikasi:", error);
+                handleFirestoreError(error, "inisialisasi aplikasi");
             }
         }
-        
+
         async function initializeDefaultSources() {
             const sourcesColRef = collection(db, dataPath, 'sources');
-            try {
-                const snapshot = await getDocs(sourcesColRef);
-                if (snapshot.empty) {
-                    const batch = writeBatch(db);
-                    DEFAULT_SOURCES.forEach(sourceName => {
-                        const docRef = doc(collection(db, dataPath, 'sources'));
-                        batch.set(docRef, { name: sourceName, balance: 0 });
-                    });
-                    await batch.commit();
-                }
-            } catch(error) {
-                console.error("Gagal membuat sumber dana default:", error);
-                // Di sini bisa ditambahkan logika untuk menampilkan pesan error ke pengguna
+            const snapshot = await getDocs(sourcesColRef);
+            if (snapshot.empty) {
+                const batch = writeBatch(db);
+                DEFAULT_SOURCES.forEach(sourceName => {
+                    const docRef = doc(collection(db, dataPath, 'sources'));
+                    batch.set(docRef, { name: sourceName, balance: 0 });
+                });
+                await batch.commit();
             }
         }
         
-        // ... (Sisa fungsi-fungsi lainnya seperti loadSources, applyAndListen, render, submitForm, dll)
-        // Dirender lengkap di bawah
-
-        onAuthStateChanged(auth, (user) => {
-            if (user) {
-                initializeAppLogic(user);
-            } else {
-                signInAnonymously(auth).catch((error) => {
-                    console.error("Gagal login anonim:", error);
-                    document.getElementById('loading-state').textContent = "Otentikasi Gagal. Coba muat ulang.";
-                });
-            }
-        });
-
-        // =====================================================================
-        // SELURUH FUNGSI HELPER, RENDER, DAN LOGIKA APLIKASI
-        // =====================================================================
+        function loadSources() {
+            const sourcesColRef = collection(db, dataPath, 'sources');
+            onSnapshot(sourcesColRef, (snapshot) => {
+                sourcesCache = snapshot.docs.map(d => ({...d.data(), id: d.id}));
+                sourcesCache.sort((a, b) => DEFAULT_SOURCES.indexOf(a.name) - DEFAULT_SOURCES.indexOf(b.name));
+                renderSourceCards();
+                updateDropdowns();
+            }, (error) => handleFirestoreError(error, "memuat sumber dana"));
+        }
         
-        function renderMainContent() {
-             const mainContent = document.getElementById('main-content');
-             mainContent.innerHTML = `
+        function applyAndListenForTransactions() {
+            if (unsubscribeTransactions) unsubscribeTransactions();
+            let q = query(collection(db, dataPath, 'transactions'));
+            
+            const constraints = [];
+            const typeValue = document.getElementById('filter-type').value;
+            const sourceValue = document.getElementById('filter-source').value;
+            const startDate = fpStartDate.selectedDates[0];
+            let endDate = fpEndDate.selectedDates[0];
+
+            if (sourceValue !== 'all') constraints.push(where('involvedSources', 'array-contains', sourceValue));
+            if (typeValue !== 'all') constraints.push(where('type', '==', typeValue));
+            if (startDate) constraints.push(where('timestamp', '>=', Timestamp.fromDate(startDate)));
+            if (endDate) {
+                const endOfDay = new Date(endDate.setHours(23, 59, 59, 999));
+                constraints.push(where('timestamp', '<=', Timestamp.fromDate(endOfDay)));
+            }
+            constraints.push(where('timestamp', '!=', null));
+            
+            q = query(q, ...constraints, orderBy('timestamp', 'desc'));
+
+            document.getElementById('transactions-tbody').innerHTML = `<tr><td colspan="6" class="text-center p-6"><div class="spinner mx-auto"></div><p class="mt-2">Memfilter data...</p></td></tr>`;
+
+            unsubscribeTransactions = onSnapshot(q, (snapshot) => {
+                transactionsCache = snapshot.docs.map(d => ({ ...d.data(), id: d.id, timestamp: d.data().timestamp.toDate() }));
+                renderTransactionTable(transactionsCache);
+                calculateAndRenderSummary(transactionsCache);
+            }, (error) => handleFirestoreError(error, "memuat riwayat transaksi"));
+        }
+        
+        // ... (Sisa fungsi-fungsi lainnya)
+
+        function renderMainContentAndModals() {
+            document.getElementById('main-content').innerHTML = `
             <section class="mb-6 p-4 bg-white rounded-lg shadow-md">
                  <h2 class="text-lg font-semibold mb-3">Manajemen Laporan</h2>
                  <div class="flex flex-col sm:flex-row gap-3">
@@ -154,6 +249,7 @@
                     </button>
                  </div>
             </section>
+            
             <section id="sources-section" class="mb-6">
                 <h2 class="text-xl font-semibold mb-3">Saldo Sumber Dana</h2>
                 <div id="sources-container" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4"></div>
@@ -227,317 +323,14 @@
                 </div>
             </section>
             `;
+            const modalsContainer = document.getElementById('modals-container');
+            modalsContainer.innerHTML = `
+                <div id="topup-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 hidden modal-enter"> <div class="bg-white rounded-lg shadow-xl w-full max-w-md p-6"> <h3 class="text-lg font-bold mb-4">Top Up Saldo</h3> <form id="topup-form"> <div class="mb-4"> <label for="topup-source" class="block text-sm font-medium text-gray-700 mb-1">Pilih Sumber Dana</label> <select id="topup-source" class="w-full px-3 py-2 border border-gray-300 rounded-lg" required></select> </div> <div class="mb-6"> <label for="topup-amount" class="block text-sm font-medium text-gray-700 mb-1">Jumlah Top Up</label> <input type="number" id="topup-amount" placeholder="0" class="w-full px-3 py-2 border border-gray-300 rounded-lg" required> </div> <div class="flex justify-end gap-3"> <button type="button" class="close-modal-btn bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300">Batal</button> <button type="submit" class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700">Simpan</button> </div> </form> </div> </div>
+                <div id="transaction-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 hidden modal-enter"> <div class="bg-white rounded-lg shadow-xl w-full max-w-md p-6"> <h3 class="text-lg font-bold mb-4" id="transaction-modal-title">Transaksi Baru</h3> <form id="transaction-form"> <input type="hidden" id="edit-transaction-id"> <div class="mb-4"> <label for="transaction-type" class="block text-sm font-medium text-gray-700 mb-1">Jenis Transaksi</label> <select id="transaction-type" class="w-full px-3 py-2 border border-gray-300 rounded-lg" required> <option value="Setor Tunai">Setor Tunai</option> <option value="Tarik Tunai">Tarik Tunai</option> <option value="Top-up E-money">Top-up E-money</option></select> </div> <div class="mb-4"> <label for="transaction-source" class="block text-sm font-medium text-gray-700 mb-1">Sumber Dana (Digital)</label> <select id="transaction-source" class="w-full px-3 py-2 border border-gray-300 rounded-lg" required> </select> </div> <div class="grid grid-cols-2 gap-4 mb-4"> <div> <label for="transaction-amount" class="block text-sm font-medium text-gray-700 mb-1">Jumlah</label> <input type="number" id="transaction-amount" placeholder="100000" class="w-full px-3 py-2 border border-gray-300 rounded-lg" required> </div> <div> <label for="transaction-fee" class="block text-sm font-medium text-gray-700 mb-1">Biaya Admin</label> <input type="number" id="transaction-fee" value="0" placeholder="2000" class="w-full px-3 py-2 border border-gray-300 rounded-lg" required> </div> </div> <div class="flex justify-end gap-3"> <button type="button" class="close-modal-btn bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300">Batal</button> <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">Simpan</button> </div> </form> </div> </div>
+                <div id="internal-transfer-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 hidden modal-enter"> <div class="bg-white rounded-lg shadow-xl w-full max-w-md p-6"> <h3 class="text-lg font-bold mb-4">Transfer Antar Sumber Dana</h3> <form id="internal-transfer-form"> <div class="mb-4"> <label for="transfer-from" class="block text-sm font-medium text-gray-700 mb-1">Dari Sumber</label> <select id="transfer-from" class="w-full px-3 py-2 border border-gray-300 rounded-lg" required></select> </div><div class="mb-4"> <label for="transfer-to" class="block text-sm font-medium text-gray-700 mb-1">Ke Sumber</label> <select id="transfer-to" class="w-full px-3 py-2 border border-gray-300 rounded-lg" required></select> </div> <div class="mb-6"> <label for="transfer-amount" class="block text-sm font-medium text-gray-700 mb-1">Jumlah Transfer</label> <input type="number" id="transfer-amount" placeholder="0" class="w-full px-3 py-2 border border-gray-300 rounded-lg" required> </div> <div class="flex justify-end gap-3"> <button type="button" class="close-modal-btn bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300">Batal</button> <button type="submit" class="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700">Simpan</button> </div> </form> </div> </div>
+                <div id="confirmation-modal" class="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center p-4 hidden z-50"> <div class="bg-white rounded-lg shadow-xl w-full max-w-md p-6"> <h3 class="text-xl font-bold mb-4 text-gray-900" id="confirmation-title">Konfirmasi Tindakan</h3> <div id="confirmation-summary" class="mb-6 text-gray-700 space-y-2"></div> <div class="flex justify-end gap-3"> <button id="cancel-action-btn" class="bg-gray-300 text-gray-800 px-6 py-2 rounded-lg hover:bg-gray-400">Batal</button> <button id="confirm-action-btn" class="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 font-semibold">Ya, Lanjutkan</button> </div> </div> </div>
+            `;
         }
-        
-        function addEventListeners(){
-            dateRangePicker = flatpickr("#filter-date-range", { 
-                mode: "range",
-                dateFormat: "d-m-Y", 
-                locale: "id", 
-                onChange: () => applyAndListenForTransactions() 
-            });
-
-            document.getElementById('add-transaction-btn').addEventListener('click', () => document.getElementById('transaction-modal').classList.remove('hidden'));
-            document.getElementById('topup-btn').addEventListener('click', () => document.getElementById('topup-modal').classList.remove('hidden'));
-            document.getElementById('internal-transfer-btn').addEventListener('click', () => document.getElementById('internal-transfer-modal').classList.remove('hidden'));
-            document.querySelectorAll('.close-modal-btn').forEach(btn => btn.addEventListener('click', (e) => e.target.closest('.modal-enter').classList.add('hidden')));
-            document.getElementById('filter-type').addEventListener('change', () => applyAndListenForTransactions());
-            document.getElementById('filter-source').addEventListener('change', () => applyAndListenForTransactions());
-            document.getElementById('reset-filter-btn').addEventListener('click', () => {
-                document.getElementById('filter-type').value = 'all'; 
-                document.getElementById('filter-source').value = 'all';
-                dateRangePicker.clear();
-                applyAndListenForTransactions();
-            });
-            document.getElementById('transactions-tbody').addEventListener('click', (e) => {
-                if (e.target.classList.contains('delete-btn')) handleDelete(e.target.dataset.id);
-            });
-            document.getElementById('export-csv-btn').addEventListener('click', () => {
-                 const rows = [
-                    ["ID Transaksi", "Tanggal", "Jenis", "Jumlah", "Biaya Admin", "Sumber Dana ID", "Nama Sumber Dana", "Tujuan ID", "Nama Tujuan"],
-                    ...transactionsCache.map(tx => [
-                        tx.id, `"${tx.timestamp.toLocaleString('id-ID')}"`, tx.type, tx.amount, tx.adminFee, tx.sourceId, tx.sourceName, tx.destinationId || '', tx.destinationName || ''
-                    ])
-                 ];
-                 let csvContent = "data:text/csv;charset=utf-8," + rows.map(e => e.join(",")).join("\n");
-                 const link = document.createElement("a");
-                 link.setAttribute("href", encodeURI(csvContent));
-                 link.setAttribute("download", `laporan_transaksi_${new Date().toISOString().split('T')[0]}.csv`);
-                 document.body.appendChild(link);
-                 link.click();
-                 document.body.removeChild(link);
-            });
-            document.getElementById('topup-form').addEventListener('submit', (e) => { e.preventDefault(); submitForm('topup-form'); });
-            document.getElementById('transaction-form').addEventListener('submit', (e) => { e.preventDefault(); submitForm('transaction-form'); });
-            document.getElementById('internal-transfer-form').addEventListener('submit', (e) => { e.preventDefault(); submitForm('internal-transfer-form'); });
-            document.getElementById('cancel-action-btn').addEventListener('click', () => {
-                pendingTransaction = null;
-                document.getElementById('confirmation-modal').classList.add('hidden');
-            });
-            document.getElementById('confirm-action-btn').addEventListener('click', confirmAction);
-            document.getElementById('close-alert-modal').addEventListener('click', () => document.getElementById('alert-modal').classList.add('hidden'));
-        }
-
-        // ... (seluruh fungsi lainnya seperti render, submit, dll. diletakkan di sini)
-
-        // =====================================================================
-        // SELURUH FUNGSI HELPER, RENDER, DAN LOGIKA APLIKASI
-        // =====================================================================
-        
-        function renderSourceCards() {
-             const sourcesContainer = document.getElementById('sources-container');
-             if(!sourcesContainer) return;
-             sourcesContainer.innerHTML = '';
-             sourcesCache.forEach(source => {
-                const balanceFormatted = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(source.balance);
-                const card = document.createElement('div');
-                card.className = 'p-4 bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow duration-300';
-                card.innerHTML = `<h3 class="font-semibold text-gray-600 truncate">${source.name}</h3><p class="text-2xl font-bold text-gray-900">${balanceFormatted}</p>`;
-                sourcesContainer.appendChild(card);
-             });
-        }
-
-        function renderTransactionTable(transactions) {
-            const transactionsTbody = document.getElementById('transactions-tbody');
-            if(!transactionsTbody) return;
-            transactionsTbody.innerHTML = '';
-            if (transactions.length === 0) {
-                transactionsTbody.innerHTML = `<tr><td colspan="6" class="text-center p-6 text-gray-500">Tidak ada transaksi yang cocok.</td></tr>`;
-            } else {
-                transactions.forEach(tx => renderTransactionRow(tx));
-            }
-        }
-
-        function renderTransactionRow(tx) {
-            const transactionsTbody = document.getElementById('transactions-tbody');
-            const amountFormatted = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(tx.amount);
-            const date = tx.timestamp.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-            
-            let amountClass = 'text-gray-800', amountPrefix = '', sourceInfo = tx.sourceName, feeFormatted = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(tx.adminFee || 0);
-            
-            if(tx.type === 'Transfer Internal'){
-                amountClass = 'text-purple-600';
-                sourceInfo = `<span class="text-red-600">${tx.sourceName}</span> &rarr; <span class="text-green-600">${tx.destinationName}</span>`;
-                feeFormatted = 'N/A';
-            } else if (tx.type === 'Setor Tunai') {
-                 amountClass = 'text-gray-800';
-                 sourceInfo = `<span class="text-red-600">${tx.sourceName}</span> &rarr; <span class="text-green-600">${CASH_SOURCE_NAME}</span>`;
-            } else if (tx.type === 'Tarik Tunai') {
-                 amountClass = 'text-gray-800';
-                 sourceInfo = `<span class="text-red-600">${CASH_SOURCE_NAME}</span> &rarr; <span class="text-green-600">${tx.sourceName}</span>`;
-            } else if (tx.type === 'Top Up Saldo') { 
-                amountClass = 'text-green-600 font-semibold'; amountPrefix = '+'; 
-                sourceInfo = `&rarr; <span class="text-green-600">${tx.sourceName}</span>`;
-                feeFormatted = 'N/A';
-            } else { // Top-up E-money
-                amountClass = 'text-red-600'; amountPrefix = '-'; 
-                sourceInfo = `<span class="text-red-600">${tx.sourceName}</span> &rarr; Keluar`;
-            }
-
-            const row = document.createElement('tr');
-            row.className = 'bg-white border-b hover:bg-gray-50';
-            row.innerHTML = `<td class="px-6 py-4 text-gray-600">${date}</td><td class="px-6 py-4 font-medium text-gray-900">${tx.type}</td><td class="px-6 py-4 font-semibold ${amountClass}">${amountPrefix}${amountFormatted}</td><td class="px-6 py-4 text-gray-600">${feeFormatted}</td><td class="px-6 py-4 text-gray-600">${sourceInfo}</td>
-                <td class="px-6 py-4 text-sm font-medium"><button class="delete-btn text-red-600 hover:text-red-900 ml-4" data-id="${tx.id}">Hapus</button></td>`;
-            transactionsTbody.appendChild(row);
-        }
-
-        function updateDropdowns() {
-            const selects = [document.getElementById('transaction-source'), document.getElementById('topup-source'), document.getElementById('filter-source'), document.getElementById('transfer-from'), document.getElementById('transfer-to')];
-            selects.forEach(selectEl => {
-                if(!selectEl) return;
-                const isFilterDropdown = selectEl.id === 'filter-source';
-                const currentValue = selectEl.value;
-                selectEl.innerHTML = '';
-                if (isFilterDropdown) {
-                    const allOption = document.createElement('option');
-                    allOption.value = 'all';
-                    allOption.textContent = 'Semua Sumber';
-                    selectEl.appendChild(allOption);
-                }
-                sourcesCache.forEach(source => {
-                    if (selectEl.id === 'transaction-source' && source.name === CASH_SOURCE_NAME) return;
-                    const option = document.createElement('option');
-                    option.value = source.id;
-                    option.textContent = isFilterDropdown ? source.name : `${source.name} (Saldo: ${new Intl.NumberFormat('id-ID').format(source.balance)})`;
-                    selectEl.appendChild(option);
-                });
-                if (selectEl.querySelector(`option[value="${currentValue}"]`)) selectEl.value = currentValue;
-            });
-        }
-        
-        function submitForm(formId) {
-            const form = document.getElementById(formId);
-            let summaryHTML = '', isValid = true, source, amount, adminFee, fromSource, toSource, type;
-            const confirmationTitle = document.getElementById('confirmation-title');
-            const confirmationSummary = document.getElementById('confirmation-summary');
-
-            confirmationTitle.textContent = "Konfirmasi Tindakan";
-
-            if (formId === 'topup-form') {
-                source = sourcesCache.find(s => s.id === document.getElementById('topup-source').value);
-                amount = parseFloat(document.getElementById('topup-amount').value);
-                if (!source || isNaN(amount) || amount <= 0) isValid = false;
-                if(isValid) {
-                    pendingTransaction = { action: 'topup', source, amount };
-                    summaryHTML = `<p>Anda akan menambah saldo <strong>${source.name}</strong> sebesar <strong>${new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR' }).format(amount)}</strong>.</p>`;
-                }
-            } else if (formId === 'transaction-form') {
-                type = document.getElementById('transaction-type').value;
-                source = sourcesCache.find(s => s.id === document.getElementById('transaction-source').value);
-                amount = parseFloat(document.getElementById('transaction-amount').value);
-                adminFee = parseFloat(document.getElementById('transaction-fee').value);
-                if (!source || isNaN(amount) || amount <= 0 || isNaN(adminFee)) isValid = false;
-                if(isValid) {
-                    summaryHTML = `<p>Anda akan melakukan tindakan berikut:</p><ul class="list-disc list-inside mt-2 bg-gray-50 p-3 rounded-md"><li><strong>Jenis:</strong> ${type}</li>`;
-                    if (type === 'Tarik Tunai') {
-                         const cashSource = sourcesCache.find(s => s.name === CASH_SOURCE_NAME);
-                         if(cashSource.balance < amount) { isValid = false; showAlert("Saldo Kas Tidak Cukup", `Sisa saldo Uang Tunai tidak cukup.`); }
-                    } else if (source.balance < amount) { isValid = false; showAlert("Saldo Tidak Cukup", `Saldo di ${source.name} tidak cukup.`); }
-                }
-                if(isValid) {
-                    summaryHTML += `<li><strong>Sumber Dana:</strong> ${source.name}</li><li class="font-semibold"><strong>Jumlah:</strong> ${new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR' }).format(amount)}</li></ul>`;
-                    pendingTransaction = { action: 'transaction', source, data: { type, amount, adminFee } };
-                }
-            } else if (formId === 'internal-transfer-form') {
-                fromSource = sourcesCache.find(s => s.id === document.getElementById('transfer-from').value);
-                toSource = sourcesCache.find(s => s.id === document.getElementById('transfer-to').value);
-                amount = parseFloat(document.getElementById('transfer-amount').value);
-                if(!fromSource || !toSource || fromSource.id === toSource.id || isNaN(amount) || amount <= 0) isValid = false;
-                if(isValid && fromSource.balance < amount) { isValid = false; showAlert("Saldo Tidak Cukup", `Saldo di ${fromSource.name} tidak cukup.`); }
-                
-                if(isValid) {
-                    pendingTransaction = { action: 'internal_transfer', fromSource, toSource, amount};
-                    summaryHTML = `<p>Anda akan melakukan transfer internal:</p><ul class="list-disc list-inside mt-2 bg-gray-50 p-3 rounded-md">
-                        <li><strong class="text-red-600">Dari:</strong> ${fromSource.name}</li>
-                        <li><strong class="text-green-600">Ke:</strong> ${toSource.name}</li>
-                        <li class="font-semibold"><strong>Sejumlah:</strong> ${new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR' }).format(amount)}</li>
-                    </ul>`;
-                }
-            }
-
-            if(isValid) {
-                confirmationSummary.innerHTML = summaryHTML;
-                form.parentElement.parentElement.classList.add('hidden');
-                document.getElementById('confirmation-modal').classList.remove('hidden');
-            } else if (!document.getElementById('alert-modal').classList.contains('hidden')) {
-            } else {
-                showAlert("Input Tidak Valid", "Mohon periksa kembali data yang Anda masukkan.");
-            }
-        }
-        
-        function handleDelete(transactionId) {
-             const tx = transactionsCache.find(t => t.id === transactionId);
-             if (!tx) return;
-             pendingTransaction = { action: 'delete', transactionToDelete: tx };
-             document.getElementById('confirmation-title').textContent = "Konfirmasi Hapus";
-             document.getElementById('confirmation-summary').innerHTML = `<p class="text-red-700 font-semibold">Anda yakin ingin menghapus transaksi ini? Tindakan ini akan mengembalikan saldo seperti semula dan tidak dapat diurungkan.</p>`;
-             document.getElementById('confirmation-modal').classList.remove('hidden');
-        }
-
-        async function confirmAction() {
-            if (!pendingTransaction) return;
-            const { action } = pendingTransaction;
-
-            try {
-                if (action === 'delete') {
-                    const tx = pendingTransaction.transactionToDelete;
-                    await runTransaction(db, async (t) => {
-                        const txRef = doc(db, dataPath, 'transactions', tx.id);
-                        if(tx.type === 'Top Up Saldo'){
-                            const sourceRef = doc(db, dataPath, 'sources', tx.sourceId);
-                            const sourceDoc = await t.get(sourceRef);
-                            t.update(sourceRef, {balance: sourceDoc.data().balance - tx.amount});
-                        } else if (tx.type === 'Transfer Internal') {
-                             const fromRef = doc(db, dataPath, 'sources', tx.sourceId);
-                             const toRef = doc(db, dataPath, 'sources', tx.destinationId);
-                             const fromDoc = await t.get(fromRef);
-                             const toDoc = await t.get(toRef);
-                             t.update(fromRef, {balance: fromDoc.data().balance + tx.amount});
-                             t.update(toRef, {balance: toDoc.data().balance - tx.amount});
-                        } else { 
-                            const sourceRef = doc(db, dataPath, 'sources', tx.sourceId);
-                            const sourceDoc = await t.get(sourceRef);
-                            const cashSource = sourcesCache.find(s => s.name === CASH_SOURCE_NAME);
-                            const cashRef = doc(db, dataPath, 'sources', cashSource.id);
-                            const cashDoc = await t.get(cashRef);
-
-                            if(tx.type === 'Setor Tunai'){
-                                t.update(sourceRef, {balance: sourceDoc.data().balance + tx.amount});
-                                t.update(cashRef, {balance: cashDoc.data().balance - tx.amount});
-                            } else if (tx.type === 'Tarik Tunai'){
-                                t.update(sourceRef, {balance: sourceDoc.data().balance - tx.amount});
-                                t.update(cashRef, {balance: cashDoc.data().balance + tx.amount});
-                            } else {
-                                t.update(sourceRef, {balance: sourceDoc.data().balance + tx.amount});
-                            }
-                        }
-                        t.delete(txRef);
-                    });
-                } else {
-                    let transactionData;
-                    if (action === 'topup') {
-                        const { source, amount } = pendingTransaction;
-                        const currentSource = sourcesCache.find(s => s.id === source.id);
-                        await updateDoc(doc(db, dataPath, 'sources', source.id), { balance: currentSource.balance + amount });
-                        transactionData = { type: "Top Up Saldo", amount, adminFee: 0, sourceId: source.id, sourceName: source.name, timestamp: Timestamp.now(), involvedSources: [source.id] };
-                    } else if (action === 'transaction') {
-                        const { source, data } = pendingTransaction;
-                        const cashSource = sourcesCache.find(s => s.name === CASH_SOURCE_NAME);
-                        const sourceRef = doc(db, dataPath, 'sources', source.id);
-                        const cashSourceRef = doc(db, dataPath, 'sources', cashSource.id);
-                        let involvedSources = [source.id];
-
-                        await runTransaction(db, async (t) => {
-                            const currentSourceDoc = await t.get(sourceRef);
-                            const currentCashDoc = await t.get(cashSourceRef);
-                            const currentSourceBalance = currentSourceDoc.data().balance;
-                            const currentCashBalance = currentCashDoc.data().balance;
-
-                            if(data.type === 'Setor Tunai'){
-                                t.update(sourceRef, {balance: currentSourceBalance - data.amount});
-                                t.update(cashSourceRef, {balance: currentCashBalance + data.amount});
-                                involvedSources.push(cashSource.id);
-                            } else if(data.type === 'Tarik Tunai'){
-                                t.update(sourceRef, {balance: currentSourceBalance + data.amount});
-                                t.update(cashSourceRef, {balance: currentCashBalance - data.amount});
-                                involvedSources.push(cashSource.id);
-                            } else {
-                                t.update(sourceRef, {balance: currentSourceBalance - data.amount});
-                            }
-                        });
-                        transactionData = { ...data, sourceId: source.id, sourceName: source.name, timestamp: Timestamp.now(), involvedSources };
-                    } else if(action === 'internal_transfer') {
-                        const {fromSource, toSource, amount} = pendingTransaction;
-                        await runTransaction(db, async (t) => {
-                            const fromDoc = await t.get(doc(db, dataPath, 'sources', fromSource.id));
-                            const toDoc = await t.get(doc(db, dataPath, 'sources', toSource.id));
-                            t.update(doc(db, dataPath, 'sources', fromSource.id), {balance: fromDoc.data().balance - amount});
-                            t.update(doc(db, dataPath, 'sources', toSource.id), {balance: toDoc.data().balance + amount});
-                        });
-                        transactionData = { type: "Transfer Internal", amount, adminFee: 0, sourceId: fromSource.id, sourceName: fromSource.name, destinationId: toSource.id, destinationName: toSource.name, timestamp: Timestamp.now(), involvedSources: [fromSource.id, toSource.id] };
-                    }
-                    if(transactionData) await addDoc(collection(db, dataPath, 'transactions'), transactionData);
-                }
-
-                ['topup-form', 'transaction-form', 'internal-transfer-form'].forEach(id => document.getElementById(id).reset());
-                pendingTransaction = null;
-                document.getElementById('confirmation-modal').classList.add('hidden');
-            } catch (error) {
-                handleFirestoreError(error, "menyimpan transaksi");
-            }
-        }
-        
-        onAuthStateChanged(auth, (user) => {
-            if (user) {
-                initializeAppLogic(user);
-            } else {
-                signInAnonymously(auth).catch((error) => {
-                    console.error("Anonymous sign-in error", error);
-                    document.getElementById('loading-state').textContent = "Otentikasi Gagal.";
-                    handleFirestoreError(error, "otentikasi anonim");
-                });
-            }
-        });
     </script>
 </body>
 </html>
